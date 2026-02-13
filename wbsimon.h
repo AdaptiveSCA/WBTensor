@@ -37,6 +37,11 @@ typedef struct {
     // QAM Debugging Constants
     // Stores the expected XOR difference (C) between Dummy0 and Dummy1 for each round.
     uint16_t *dummy_consts; 
+    
+    // External Encodings (Linear N x N matrices)
+    // Used to bridge the external world (plaintext/ciphertext) with the white-box internal state.
+    mzd_t *ext_encoding_in;      // Applied to Plaintext -> State
+    mzd_t *ext_encoding_out_inv; // Applied to State -> Ciphertext (Decoding)
 
 } WB_Context;
 
@@ -69,13 +74,40 @@ void wb_generate_matrix(WB_Context *ctx, const uint8_t *master_key);
 // --- Execution ---
 
 /**
- * Performs white-box encryption on a plaintext block.
- * Handles input encoding (splitting into shares), state randomization,
- * round execution, and output decoding.
- * * @param ctx Pointer to the initialized context with generated matrices.
- * @param in Input plaintext (4 bytes).
- * @param out Output ciphertext (4 bytes).
+ * STEP 1: Input Mapping
+ * Converts the 4-byte plaintext into the internal White-Box state vector.
+ * This function handles:
+ * 1. Loading bytes into words.
+ * 2. Injecting randomness (Masking shares, Dummy values, Constants).
+ * 3. Applying the External Input Linear Encoding (P_in).
+ * * @param ctx The white-box context.
+ * @param in The 4-byte plaintext input.
+ * @return A pointer to the allocated M4RI state vector (N x 1).
  */
-void wb_encrypt(WB_Context *ctx, const uint8_t *in, uint8_t *out);
+mzd_t* wb_map_input(WB_Context *ctx, const uint8_t *in);
+
+/**
+ * STEP 2: Core Execution
+ * Executes the white-box round functions on the state vector.
+ * This performs the quadratic evaluation and matrix multiplication for all rounds.
+ * The state vector is updated in-place.
+ * * @param ctx The white-box context.
+ * @param state The state vector returned by wb_map_input.
+ */
+void wb_execute_rounds(WB_Context *ctx, mzd_t *state);
+
+/**
+ * STEP 3: Output Mapping
+ * Converts the final internal state vector back to ciphertext bytes.
+ * This function handles:
+ * 1. Applying the External Output Linear Decoding (P_out^-1).
+ * 2. Recombining the secret shares (U0^U1, V0^V1).
+ * 3. Serializing the result to bytes.
+ * 4. Frees the state vector memory.
+ * * @param ctx The white-box context.
+ * @param state The state vector (will be freed by this function).
+ * @param out Buffer to store the 4-byte ciphertext.
+ */
+void wb_map_output(WB_Context *ctx, mzd_t *state, uint8_t *out);
 
 #endif // WB_SIMON_H
